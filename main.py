@@ -1,137 +1,150 @@
 import os
 import subprocess
-from datetime import date
+from datetime import date, datetime
+import random
 import tkinter as tk
 from tkinter import messagebox, scrolledtext
-
+from dotenv import load_dotenv
 from google import genai
 
+# Load environment
+load_dotenv()
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
-# ---------------- CONFIG ----------------
+# ---------------- CONFIG & AESTHETICS ----------------
 LOG_DIR = "logs"
-MODEL_NAME = "gemini-1.5-flash"
-# ----------------------------------------
+MODEL_NAME = "gemini-3-flash-preview"
 
+BG_MAIN = "#2E3440"
+BG_INPUT = "#3B4252"
+FG_TEXT = "#D8DEE9"
+ACCENT = "#88C0D0"
+SUCCESS = "#A3BE8C"
+HIGHLIGHT = "#EBCB8B"
+
+QUOTES = ["Focus on being productive instead of busy.", "Done is better than perfect.", 
+          "Small steps lead to big destinations.", "The only way to go fast is to go well."]
+
+# ---------------- LOGIC ----------------
 
 def ensure_log_dir():
-    if not os.path.exists(LOG_DIR):
-        os.makedirs(LOG_DIR)
-
+    if not os.path.exists(LOG_DIR): os.makedirs(LOG_DIR)
 
 def get_today_file():
     today = date.today().isoformat()
     return os.path.join(LOG_DIR, f"{today}.md"), today
 
-
 def save_log():
     did = did_text.get("1.0", tk.END).strip()
     challenges = challenges_text.get("1.0", tk.END).strip()
     learned = learned_text.get("1.0", tk.END).strip()
-
-    if not (did or challenges or learned):
-        messagebox.showwarning("Empty", "Write something first 🙂")
+    if not (did or challenges or learned) or did.startswith("//"):
+        messagebox.showwarning("Empty", "Write something first! ✨")
         return
-
     ensure_log_dir()
     file_path, today = get_today_file()
-    new_file = not os.path.exists(file_path)
-
+    now_time = datetime.now().strftime("%I:%M %p")
     with open(file_path, "a", encoding="utf-8") as f:
-        if new_file:
-            f.write(f"# {today}\n\n")
-
-        if did:
-            f.write("## What I did\n")
-            for line in did.split("\n"):
-                f.write(f"- {line}\n")
-            f.write("\n")
-
-        if challenges:
-            f.write("## Challenges\n")
-            for line in challenges.split("\n"):
-                f.write(f"- {line}\n")
-            f.write("\n")
-
-        if learned:
-            f.write("## What I learned\n")
-            for line in learned.split("\n"):
-                f.write(f"- {line}\n")
-            f.write("\n")
-
-    messagebox.showinfo("Saved", "Daily log saved ✅")
-
+        if not os.path.exists(file_path): f.write(f"# 📅 Log for {today}\n\n")
+        f.write(f"--- \n### 🕒 Entry at {now_time}\n")
+        if did: f.write(f"**Progress:**\n{did}\n\n")
+        if challenges: f.write(f"**Blockers:**\n{challenges}\n\n")
+        if learned: f.write(f"**Learnings:**\n{learned}\n\n")
+    messagebox.showinfo("Saved", f"Entry added at {now_time} ✅")
+    for txt in [did_text, challenges_text, learned_text]: txt.delete("1.0", tk.END)
 
 def generate_summary():
     file_path, _ = get_today_file()
     if not os.path.exists(file_path):
         messagebox.showerror("No log", "Save today’s log first.")
         return
-
-    with open(file_path, "r", encoding="utf-8") as f:
-        content = f.read()
-
+    with open(file_path, "r", encoding="utf-8") as f: content = f.read()
+    prompt = f"Summarize this work log into professional bullet points, with exactly 2 sentences for 'Learnings' and 2 sentences for 'Blockers & Risks'.\n\nContent:\n{content}"
     try:
-        genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-    except KeyError:
-        messagebox.showerror("API Key Missing", "Set GEMINI_API_KEY environment variable.")
-        return
-
-    model = genai.GenerativeModel(MODEL_NAME)
-
-    prompt = f"""
-Summarize the following daily work log into concise, professional bullet points
-suitable for sending as a daily update to a manager:
-
-{content}
-"""
-
-    try:
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(model=MODEL_NAME, contents=prompt)
         summary_box.delete("1.0", tk.END)
         summary_box.insert(tk.END, response.text.strip())
-    except Exception as e:
-        messagebox.showerror("Error", str(e))
-
+    except Exception as e: messagebox.showerror("AI Error", str(e))
 
 def git_commit():
-    file_path, today = get_today_file()
-    if not os.path.exists(file_path):
-        messagebox.showerror("No log", "Nothing to commit yet.")
-        return
-
     try:
         subprocess.run(["git", "add", "."], check=True)
-        subprocess.run(["git", "commit", "-m", f"Daily log: {today}"], check=True)
+        subprocess.run(["git", "commit", "-m", f"Daily log update: {date.today()}"], check=True)
         subprocess.run(["git", "push"], check=True)
-        messagebox.showinfo("Git", "Committed & pushed to GitHub 🚀")
-    except subprocess.CalledProcessError as e:
-        messagebox.showerror("Git Error", str(e))
+        messagebox.showinfo("Git", "Pushed to GitHub 🚀")
+    except Exception as e: messagebox.showerror("Git Error", str(e))
 
+# ---------------- UI CONSTRUCTION (RESPONSIVE) ----------------
 
-# ---------------- GUI ----------------
 root = tk.Tk()
-root.title("Daily Work Logger")
-root.geometry("700x750")
+root.title("DeepWork | Minimalist Logger")
+root.geometry("800x850")
+root.configure(bg=BG_MAIN)
 
-tk.Label(root, text="What I did today").pack(anchor="w", padx=10)
-did_text = scrolledtext.ScrolledText(root, height=5)
-did_text.pack(fill="x", padx=10, pady=5)
+# Main Container
+root.grid_columnconfigure(0, weight=1)
+root.grid_rowconfigure(0, weight=1)
 
-tk.Label(root, text="Challenges faced").pack(anchor="w", padx=10)
-challenges_text = scrolledtext.ScrolledText(root, height=5)
-challenges_text.pack(fill="x", padx=10, pady=5)
+canvas = tk.Canvas(root, bg=BG_MAIN, highlightthickness=0)
+canvas.grid(row=0, column=0, sticky="nsew")
 
-tk.Label(root, text="What I learned").pack(anchor="w", padx=10)
-learned_text = scrolledtext.ScrolledText(root, height=5)
-learned_text.pack(fill="x", padx=10, pady=5)
+scrollbar = tk.Scrollbar(root, orient="vertical", command=canvas.yview)
+scrollbar.grid(row=0, column=1, sticky="ns")
 
-tk.Button(root, text="Save Log", command=save_log).pack(pady=10)
+scrollable_frame = tk.Frame(canvas, bg=BG_MAIN)
+# This ID allows us to resize the internal window
+canvas_window = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
 
-tk.Label(root, text="AI Summary (copy & send)").pack(anchor="w", padx=10)
-summary_box = scrolledtext.ScrolledText(root, height=8)
-summary_box.pack(fill="x", padx=10, pady=5)
+def on_configure(event):
+    # Update scroll region
+    canvas.configure(scrollregion=canvas.bbox("all"))
+    # Force the internal frame to match the canvas width
+    canvas.itemconfig(canvas_window, width=event.width)
 
-tk.Button(root, text="Generate Summary (Gemini)", command=generate_summary).pack(pady=5)
-tk.Button(root, text="Commit to GitHub", command=git_commit).pack(pady=5)
+canvas.bind("<Configure>", on_configure)
+canvas.configure(yscrollcommand=scrollbar.set)
+
+# Mousewheel support
+canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
+
+# ---------------- CONTENT ----------------
+
+def create_styled_section(label_text, height):
+    tk.Label(scrollable_frame, text=label_text, bg=BG_MAIN, fg=HIGHLIGHT, font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=40, pady=(20, 5))
+    txt = tk.Text(scrollable_frame, height=height, bg=BG_INPUT, fg=FG_TEXT, font=("Consolas", 11), 
+                  relief="flat", padx=15, pady=10, insertbackground=FG_TEXT, highlightthickness=1, highlightbackground="#4C566A")
+    txt.pack(fill="x", padx=40)
+    
+    quote = random.choice(QUOTES)
+    txt.insert("1.0", f"// {quote}")
+    txt.bind("<FocusIn>", lambda e: txt.delete("1.0", tk.END) if txt.get("1.0", tk.END).startswith("//") else None)
+    return txt
+
+did_text = create_styled_section("COMPLETED TASKS", 5)
+challenges_text = create_styled_section("CHALLENGES / BLOCKERS", 4)
+learned_text = create_styled_section("KEY LEARNINGS", 4)
+
+# Buttons
+btn_frame = tk.Frame(scrollable_frame, bg=BG_MAIN)
+btn_frame.pack(fill="x", padx=40, pady=25)
+
+def mk_btn(parent, text, cmd, color, fg=BG_MAIN):
+    btn = tk.Button(parent, text=text, command=cmd, bg=color, fg=fg, font=("Segoe UI", 9, "bold"), 
+                     relief="flat", padx=20, pady=12, cursor="hand2", activebackground=FG_TEXT)
+    return btn
+
+mk_btn(btn_frame, "💾 SAVE ENTRY", save_log, ACCENT).pack(side="left", expand=True, fill="x", padx=5)
+mk_btn(btn_frame, "🤖 AI SUMMARIZE", generate_summary, SUCCESS).pack(side="left", expand=True, fill="x", padx=5)
+
+# AI Output
+tk.Label(scrollable_frame, text="MANAGER-READY SUMMARY", bg=BG_MAIN, fg=HIGHLIGHT, font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=40, pady=(10, 5))
+summary_box = scrolledtext.ScrolledText(scrollable_frame, height=12, bg=BG_INPUT, fg=FG_TEXT, font=("Consolas", 11), relief="flat", padx=15, pady=10)
+summary_box.pack(fill="x", padx=40)
+
+# GitHub Button
+tk.Label(scrollable_frame, text="VERSION CONTROL", bg=BG_MAIN, fg=HIGHLIGHT, font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=40, pady=(25, 5))
+git_btn = mk_btn(scrollable_frame, "🚀 COMMIT & PUSH TO GITHUB", git_commit, BG_MAIN, fg=SUCCESS)
+git_btn.config(highlightthickness=1, highlightbackground=SUCCESS)
+git_btn.pack(fill="x", padx=40, pady=(0, 50))
 
 root.mainloop()
